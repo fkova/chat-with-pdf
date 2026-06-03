@@ -21,6 +21,42 @@ async function initializeVectorIndex({ isLocal }: IsLocalParam): Promise<void> {
 }
 
 /**
+ * Step 0: Transform Google Drive links to direct download URLs if needed
+ */
+const transformGoogleDriveLink = createStep({
+  id: 'transform-google-drive-link',
+  description: 'Transform Google Drive sharing links to direct download URLs',
+  inputSchema: z.object({
+    url: z.string().describe('URL of the PDF to ingest'),
+  }),
+  outputSchema: z.object({
+    url: z.string(),
+  }),
+  execute: async ({ inputData }) => {
+    if (!inputData) {
+      throw new Error('Input data not found');
+    }
+
+    let { url } = inputData;
+
+    // Check if it's a Google Drive link
+    if (url.includes('drive.google.com') && url.includes('/file/d/')) {
+      // Extract the file ID from the URL
+      const match = url.match(/\/file\/d\/([^\/\?]+)/);
+      if (match && match[1]) {
+        const fileId = match[1];
+        // Transform to direct download URL
+        url = `https://drive.google.com/uc?export=download&id=${fileId}`;
+      }
+    }
+
+    return {
+      url,
+    };
+  },
+});
+
+/**
  * Step 1: Download PDF and extract text from each page
  */
 const downloadAndExtractText = createStep({
@@ -74,8 +110,6 @@ const downloadAndExtractText = createStep({
         });
       }
     }
-
-
 
     await parser.destroy();
 
@@ -245,7 +279,7 @@ const indexPdfWorkflow = createWorkflow({
     totalPages: z.number(),
     totalChunks: z.number(),
   }),
-})
+}).then(transformGoogleDriveLink)
   .then(downloadAndExtractText)
   .then(splitIntoChunks)
   .then(generateAndStoreEmbeddings({ isLocal: false }));
@@ -264,6 +298,7 @@ const indexPdfLocalWorkflow = createWorkflow({
     totalChunks: z.number(),
   }),
 })
+  .then(transformGoogleDriveLink)
   .then(downloadAndExtractText)
   .then(splitIntoChunks)
   .then(generateAndStoreEmbeddings({ isLocal: true }));
