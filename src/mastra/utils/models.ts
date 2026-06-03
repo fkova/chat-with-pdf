@@ -1,7 +1,7 @@
 import { MastraModelConfig } from "@mastra/core/llm";
 import { DynamicArgument } from "@mastra/core/types";
 
-export const LMSTUDIO_MODELS = {
+export const LLM_MODELS = {
   // local
   qwen3_coder_30b: {
     id: 'lmstudio/qwen/qwen3-coder-30b',
@@ -28,3 +28,15 @@ export const LMSTUDIO_MODELS = {
   // OpenAI
   'gpt-5.2': 'openai/gpt-5.2',
 } satisfies Record<string, DynamicArgument<MastraModelConfig>>;
+
+export const EMBEDDING_MODELS = {
+  // LM Studio local embedding model - 768 dimensions
+  nomic_embed_text_v1_5: {
+    id: 'lmstudio/text-embedding-nomic-embed-text-v1.5',
+    url: 'http://127.0.0.1:1234/v1'
+  },
+
+  // OpenAI
+  'text-embedding-3-small': 'openai/text-embedding-3-small',
+} satisfies Record<string, DynamicArgument<MastraModelConfig>>;
+

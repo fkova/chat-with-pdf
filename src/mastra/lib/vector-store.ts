@@ -6,3 +6,4 @@ export const vectorStore = new LibSQLVector({
 });
 
 export const PDF_INDEX_NAME = 'pdf_sections';
+export const PDF_INDEX_NAME_LOCAL = 'pdf_sections_local';

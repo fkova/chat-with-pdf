@@ -1,9 +1,11 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { ModelRouterEmbeddingModel } from '@mastra/core/llm';
-import { vectorStore, PDF_INDEX_NAME } from '../lib/vector-store';
+import { vectorStore, PDF_INDEX_NAME, PDF_INDEX_NAME_LOCAL } from '../lib/vector-store';
+import { IsLocalParam } from '../utils/types'
+import { EMBEDDING_MODELS } from '../utils/models';
 
-export const pdfQueryTool = createTool({
+export const pdfQueryTool = ({ isLocal }: IsLocalParam) => createTool({
   id: 'query-pdf-content',
   description: `Search PDF content with even distribution across page ranges.
 
@@ -19,14 +21,14 @@ For general topic searches without page constraints, omit pageStart/pageEnd.`,
   }),
   execute: async ({ queryText, documentId, pageStart, pageEnd }) => {
     // Generate embedding for the query using Mastra's model router
-    const embeddingModel = new ModelRouterEmbeddingModel('openai/text-embedding-3-small');
+    const embeddingModel = new ModelRouterEmbeddingModel(isLocal ? EMBEDDING_MODELS.nomic_embed_text_v1_5 : EMBEDDING_MODELS['text-embedding-3-small']);
     const { embeddings } = await embeddingModel.doEmbed({ values: [queryText] });
     const queryVector = embeddings[0];
 
     // If no page range specified, do a standard query
     if (pageStart === undefined || pageEnd === undefined) {
       const results = await vectorStore.query({
-        indexName: PDF_INDEX_NAME,
+        indexName: isLocal ? PDF_INDEX_NAME_LOCAL : PDF_INDEX_NAME,
         queryVector,
         topK: 20,
         filter: documentId ? { documentId } : undefined,
@@ -95,7 +97,7 @@ For general topic searches without page constraints, omit pageStart/pageEnd.`,
         }
 
         const pageResults = await vectorStore.query({
-          indexName: PDF_INDEX_NAME,
+          indexName: isLocal ? PDF_INDEX_NAME_LOCAL : PDF_INDEX_NAME,
           queryVector,
           topK: 2, // Just 2 chunks per page for focused content
           filter,

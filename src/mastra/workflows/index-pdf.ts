@@ -3,16 +3,18 @@ import { ModelRouterEmbeddingModel } from '@mastra/core/llm';
 import { MDocument } from '@mastra/rag';
 import { z } from 'zod';
 import { PDFParse } from 'pdf-parse';
-import { vectorStore, PDF_INDEX_NAME } from '../lib/vector-store';
+import { vectorStore, PDF_INDEX_NAME, PDF_INDEX_NAME_LOCAL } from '../lib/vector-store';
+import { EMBEDDING_MODELS } from '../utils/models';
+import { IsLocalParam } from '../utils/types';
 
-const EMBEDDING_DIMENSION = 1536; // OpenAI text-embedding-3-small
-
-async function initializeVectorIndex(): Promise<void> {
+async function initializeVectorIndex({ isLocal }: IsLocalParam): Promise<void> {
+  const indexName = isLocal ? PDF_INDEX_NAME_LOCAL : PDF_INDEX_NAME;
   const indexes = await vectorStore.listIndexes();
-  if (!indexes.includes(PDF_INDEX_NAME)) {
+  if (!indexes.includes(indexName)) {
     await vectorStore.createIndex({
-      indexName: PDF_INDEX_NAME,
-      dimension: EMBEDDING_DIMENSION,
+      indexName,
+      // OpenAI's text-embedding-3-small has 1536 dimensions, while LM Studio's Nomic Embed Text v1.5 has 768.
+      dimension: isLocal ? 768 : 1536,
       metric: 'cosine',
     });
   }
@@ -73,7 +75,7 @@ const downloadAndExtractText = createStep({
       }
     }
 
-    
+
 
     await parser.destroy();
 
@@ -160,7 +162,7 @@ const splitIntoChunks = createStep({
 /**
  * Step 3: Generate embeddings and store in vector database
  */
-const generateAndStoreEmbeddings = createStep({
+const generateAndStoreEmbeddings = ({ isLocal }: IsLocalParam) => createStep({
   id: 'generate-and-store-embeddings',
   description: 'Generate embeddings for each chunk and store in vector database',
   inputSchema: z.object({
@@ -183,11 +185,11 @@ const generateAndStoreEmbeddings = createStep({
   }),
   execute: async ({ inputData: { documentId, title, totalPages, chunks } }) => {
     // Initialize vector index if needed
-    await initializeVectorIndex();
+    await initializeVectorIndex({ isLocal });
 
     // Generate embeddings using Mastra's model router
     // Batch to stay under OpenAI's 2048 values per call limit
-    const embeddingModel = new ModelRouterEmbeddingModel('openai/text-embedding-3-small');
+    const embeddingModel = new ModelRouterEmbeddingModel(isLocal ? EMBEDDING_MODELS.nomic_embed_text_v1_5 : EMBEDDING_MODELS['text-embedding-3-small']);
     const texts = chunks.map(c => c.text);
     const BATCH_SIZE = 2000;
     const embeddings: number[][] = [];
@@ -209,7 +211,7 @@ const generateAndStoreEmbeddings = createStep({
     // Delete any existing vectors for this document (re-ingestion)
     try {
       await vectorStore.deleteVectors({
-        indexName: PDF_INDEX_NAME,
+        indexName: isLocal ? PDF_INDEX_NAME_LOCAL : PDF_INDEX_NAME,
         filter: { documentId },
       });
     } catch {
@@ -218,7 +220,7 @@ const generateAndStoreEmbeddings = createStep({
 
     // Store in vector database
     await vectorStore.upsert({
-      indexName: PDF_INDEX_NAME,
+      indexName: isLocal ? PDF_INDEX_NAME_LOCAL : PDF_INDEX_NAME,
       vectors: embeddings,
       metadata,
     });
@@ -232,7 +234,6 @@ const generateAndStoreEmbeddings = createStep({
   },
 });
 
-// Create the workflow
 const indexPdfWorkflow = createWorkflow({
   id: 'index-pdf',
   inputSchema: z.object({
@@ -247,11 +248,29 @@ const indexPdfWorkflow = createWorkflow({
 })
   .then(downloadAndExtractText)
   .then(splitIntoChunks)
-  .then(generateAndStoreEmbeddings);
+  .then(generateAndStoreEmbeddings({ isLocal: false }));
 
 indexPdfWorkflow.commit();
 
-export { indexPdfWorkflow };
+const indexPdfLocalWorkflow = createWorkflow({
+  id: 'index-pdf-local',
+  inputSchema: z.object({
+    url: z.url().describe('URL of the PDF to ingest'),
+  }),
+  outputSchema: z.object({
+    documentId: z.string(),
+    title: z.string(),
+    totalPages: z.number(),
+    totalChunks: z.number(),
+  }),
+})
+  .then(downloadAndExtractText)
+  .then(splitIntoChunks)
+  .then(generateAndStoreEmbeddings({ isLocal: true }));
+
+indexPdfLocalWorkflow.commit();
+
+export { indexPdfWorkflow, indexPdfLocalWorkflow };
 
 // Helper functions
 function extractTitleFromUrl(url: string): string {

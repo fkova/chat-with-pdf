@@ -1,9 +1,11 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { ModelRouterEmbeddingModel } from '@mastra/core/llm';
-import { vectorStore, PDF_INDEX_NAME } from '../lib/vector-store';
+import { vectorStore, PDF_INDEX_NAME, PDF_INDEX_NAME_LOCAL } from '../lib/vector-store';
+import { IsLocalParam } from '../utils/types';
+import { EMBEDDING_MODELS } from '../utils/models';
 
-export const listDocumentsTool = createTool({
+export const listDocumentsTool = ({ isLocal }: IsLocalParam) => createTool({
   id: 'list-documents',
   description: `List all indexed PDF documents available for quizzing.
 Use this tool when:
@@ -23,11 +25,11 @@ Use this tool when:
       // A cleaner approach would be a separate document registry, but this keeps the
       // template simple with fewer moving parts. For production, consider tracking
       // indexed documents in your own database.
-      const embeddingModel = new ModelRouterEmbeddingModel('openai/text-embedding-3-small');
+      const embeddingModel = new ModelRouterEmbeddingModel(isLocal ? EMBEDDING_MODELS.nomic_embed_text_v1_5 : EMBEDDING_MODELS['text-embedding-3-small']);
       const { embeddings } = await embeddingModel.doEmbed({ values: ['document'] });
 
       const results = await vectorStore.query({
-        indexName: PDF_INDEX_NAME,
+        indexName: isLocal ? PDF_INDEX_NAME_LOCAL : PDF_INDEX_NAME,
         queryVector: embeddings[0],
         topK: 1000,
       });
@@ -58,7 +60,7 @@ Use this tool when:
       if (documents.length === 0) {
         return {
           documents: [],
-          message: 'No documents have been indexed yet. Use the index-pdf workflow to add a PDF.',
+          message: `No documents have been indexed yet. Use the index-pdf workflow to add a PDF.`,
         };
       }
 
